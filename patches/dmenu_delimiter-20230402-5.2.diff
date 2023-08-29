@@ -1,0 +1,119 @@
+diff --git a/dmenu.1 b/dmenu.1
+index 323f93c..e8cf31f 100644
+--- a/dmenu.1
++++ b/dmenu.1
+@@ -22,6 +22,8 @@ dmenu \- dynamic menu
+ .IR color ]
+ .RB [ \-w
+ .IR windowid ]
++.RB [ \-d
++.IR delimiter ]
+ .P
+ .BR dmenu_run " ..."
+ .SH DESCRIPTION
+@@ -80,6 +82,9 @@ prints version information to stdout, then exits.
+ .TP
+ .BI \-w " windowid"
+ embed into windowid.
++.TP
++.BI \-d " delimiter"
++displays the first part of each item before the delimiter. Still matches and prints the entire item to stdout.
+ .SH USAGE
+ dmenu is completely controlled by the keyboard.  Items are selected using the
+ arrow keys, page up, page down, home, and end.
+diff --git a/dmenu.c b/dmenu.c
+index 7cf253b..0a1d092 100644
+--- a/dmenu.c
++++ b/dmenu.c
+@@ -30,12 +30,14 @@ enum { SchemeNorm, SchemeSel, SchemeOut, SchemeLast }; /* color schemes */
+ 
+ struct item {
+ 	char *text;
++	char *stext;
+ 	struct item *left, *right;
+ 	int out;
+ };
+ 
+ static char text[BUFSIZ] = "";
+ static char *embed;
++static char delim;
+ static int bh, mw, mh;
+ static int inputw = 0, promptw;
+ static int lrpad; /* sum of left and right padding */
+@@ -104,8 +106,10 @@ cleanup(void)
+ 	XUngrabKey(dpy, AnyKey, AnyModifier, root);
+ 	for (i = 0; i < SchemeLast; i++)
+ 		free(scheme[i]);
+-	for (i = 0; items && items[i].text; ++i)
++	for (i = 0; items && items[i].text; ++i) {
+ 		free(items[i].text);
++		free(items[i].stext);
++	}
+ 	free(items);
+ 	drw_free(drw);
+ 	XSync(dpy, False);
+@@ -140,7 +144,7 @@ drawitem(struct item *item, int x, int y, int w)
+ 	else
+ 		drw_setscheme(drw, scheme[SchemeNorm]);
+ 
+-	return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
++	return drw_text(drw, x, y, w, bh, lrpad / 2, item->stext, 0);
+ }
+ 
+ static void
+@@ -182,7 +186,7 @@ drawmenu(void)
+ 		}
+ 		x += w;
+ 		for (item = curr; item != next; item = item->right)
+-			x = drawitem(item, x, 0, textw_clamp(item->text, mw - x - TEXTW(">")));
++			x = drawitem(item, x, 0, textw_clamp(item->stext, mw - x - TEXTW(">")));
+ 		if (next) {
+ 			w = TEXTW(">");
+ 			drw_setscheme(drw, scheme[SchemeNorm]);
+@@ -549,7 +553,7 @@ paste(void)
+ static void
+ readstdin(void)
+ {
+-	char *line = NULL;
++	char *p, *line = NULL;
+ 	size_t i, junk, size = 0;
+ 	ssize_t len;
+ 
+@@ -561,10 +565,17 @@ readstdin(void)
+ 		if (line[len - 1] == '\n')
+ 			line[len - 1] = '\0';
+ 		items[i].text = line;
++
++		items[i].stext = strdup(line);
++		if ((p = strchr(items[i].stext, delim)))
++			*p = '\0';
++
+ 		items[i].out = 0;
+ 	}
+-	if (items)
++	if (items) {
+ 		items[i].text = NULL;
++		items[i].stext = NULL;
++	}
+ 	lines = MIN(lines, i);
+ }
+ 
+@@ -711,7 +722,8 @@ static void
+ usage(void)
+ {
+ 	die("usage: dmenu [-bfiv] [-l lines] [-p prompt] [-fn font] [-m monitor]\n"
+-	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]");
++	    "             [-nb color] [-nf color] [-sb color] [-sf color] [-w windowid]\n"
++	    "             [-d delimiter]");
+ }
+ 
+ int
+@@ -753,6 +765,8 @@ main(int argc, char *argv[])
+ 			colors[SchemeSel][ColFg] = argv[++i];
+ 		else if (!strcmp(argv[i], "-w"))   /* embedding window id */
+ 			embed = argv[++i];
++		else if (!strcmp(argv[i], "-d"))   /* field separator */
++			delim = argv[++i][0];
+ 		else
+ 			usage();
+ 
